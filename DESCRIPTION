@@ -18,10 +18,8 @@ Authors@R: c(
     role = "cph"
   ))
 Imports:
-  base64url,
   filelock,
   fs,
-  R.utils,
   R6
 Suggests: 
   parallel,

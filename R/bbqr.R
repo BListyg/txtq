@@ -48,140 +48,85 @@
 #'   # or Process B accessed it. That way, the data stays correct
 #'   # no matter who is accessing/modifying the queue and when.
 bbqr <- function(path){
-  R6_message_queue$new(path = path)
+  R6_bbqr$new(path = path)
 }
 
-R6_message_queue <- R6::R6Class(
-  classname = "R6_message_queue",
+R6_bbqr <- R6::R6Class(
+  classname = "R6_bbqr",
   private = list(
-    bbqr_exclusive = function(code){
-      on.exit(filelock::unlock(x))
-      x <- filelock::lock(self$lock)
+    queue_dir = character(0),
+    queue_file = character(0),
+    count_file = character(0),
+    lock_file = character(0),
+    connection = NULL,
+    exclusive = function(code){
+      on.exit(filelock::unlock(lock))
+      lock <- filelock::lock(private$lock_file)
       force(code)
     },
-    bbqr_get_head = function(){
-      scan(self$head, quiet = TRUE, what = integer())
+    get_count = function(){
+      readRDS(private$count_file)
     },
-    bbqr_set_head = function(n){
-      write(x = as.integer(n), file = self$head, append = FALSE)
+    bbqr_peek = function(){
+      readRDS(private$queue_file)
     },
-    bbqr_count = function(){
-      as.integer(
-        R.utils::countLines(self$db) - private$bbqr_get_head() + 1
-      )
+    bbqr_pop = function(){
+      saveRDS(as.integer(private$get_count() - 1), private$count_file)
+      unserialize(private$connection)
     },
-    bbqr_pop = function(n){
-      out <- private$bbqr_list(n = n)
-      new_head <- private$bbqr_get_head() + nrow(out)
-      private$bbqr_set_head(new_head)
-      out
-    },
-    bbqr_push = function(title, message){
-      out <- data.frame(
-        title = base64url::base64_urlencode(as.character(title)),
-        message = base64url::base64_urlencode(as.character(message)),
-        stringsAsFactors = FALSE
-      )
-      write.table(
-        out,
-        file = self$db,
-        append = TRUE,
-        row.names = FALSE,
-        col.names = FALSE,
-        sep = "|",
-        quote = FALSE
-      )
-    },
-    bbqr_log = function(){
-      if (length(scan(self$db, quiet = TRUE, what = character())) < 1){
-        return(
-          data.frame(
-            title = character(0),
-            message = character(0),
-            stringsAsFactors = FALSE
-          )
-        )
-      }
-      private$parse_db(
-        read.table(
-          self$db,
-          sep = "|",
-          stringsAsFactors = FALSE,
-          header = FALSE,
-          quote = "",
-          na.strings = NULL
-        )
-      )
-    },
-    bbqr_list = function(n){
-      if (private$bbqr_count() < 1){
-        return(
-          data.frame(
-            title = character(0),
-            message = character(0),
-            stringsAsFactors = FALSE
-          )
-        )
-      }
-      private$parse_db(
-        read.table(
-          self$db,
-          sep = "|",
-          skip = private$bbqr_get_head() - 1,
-          nrows = n,
-          stringsAsFactors = FALSE,
-          header = FALSE,
-          quote = "",
-          na.strings = NULL
-        )
-      )
-    },
-    parse_db = function(x){
-      colnames(x) <- c("title", "message")
-      x$title <- base64url::base64_urldecode(x$title)
-      x$message <- base64url::base64_urldecode(x$message)
-      x
+    bbqr_push = function(data){
+      saveRDS(as.integer(private$get_count() + 1), private$count_file)
+      serialize(data, connection = private$connection, xdr = FALSE)
+      invisible()
     }
   ),
   public = list(
-    path = character(0),
-    db = character(0),
-    head = character(0),
-    lock = character(0),
     initialize = function(path){
-      self$path <- fs::dir_create(path)
-      self$db <- file.path(self$path, "db")
-      self$head <- file.path(self$path, "head")
-      self$lock <- file.path(self$path, "lock")
-      private$bbqr_exclusive({
-        fs::file_create(self$db)
-        fs::file_create(self$head)
-        if (length(private$bbqr_get_head()) < 1){
-          private$bbqr_set_head(1)
+      private$queue_dir <- fs::dir_create(path)
+      private$queue_file <- file.path(private$queue_dir, "queue.rds")
+      private$count_file <- file.path(private$queue_dir, "count.rds")
+      private$lock <- file.path(private$queue_dir, "lock")
+      private$exclusive({
+        fs::file_create(private$queue_file)
+        fs::file_create(private$count_file)
+        if (length(private$get_count()) < 1){
+          saveRDS(as.integer(0), file = private$count_file)
         }
       })
+      self$connect() 
+    },
+    path = function(){
+      private$queue_dir
     },
     count = function(){
-      private$bbqr_exclusive(private$bbqr_count())
+      private$exclusive(private$get_count())
     },
     empty = function(){
       self$count() < 1
     },
-    log = function(){
-      private$bbqr_exclusive(private$bbqr_log())
+    peek = function(){
+      private$exclusive(private$peek_head())
     },
-    list = function(n = -1){
-      private$bbqr_exclusive(private$bbqr_list(n = n))
+    pop = function(){
+      private$exclusive(private$pop_head())
     },
-    pop = function(n = 1){
-      private$bbqr_exclusive(private$bbqr_pop(n = n))
+    push = function(data){
+      private$exclusive(private$push_data(data))
     },
-    push = function(title, message){
-      private$bbqr_exclusive(
-        private$bbqr_push(title = title, message = message))
+    connect = function(){
+      if (is.null(private$connection)){
+        private$connection <- file(private$queue_file, "w+b")
+      }
+    },
+    disconnect = function(){
+      if (!is.null(private$connection)){
+        close(private$connection)
+        private$connection <- NULL
+      }
     },
     destroy = function(){
-      unlink(self$path, recursive = TRUE, force = TRUE)
+      self$disconnect()
+      unlink(private$queue_dir, recursive = TRUE, force = TRUE)
     }
   )
 )

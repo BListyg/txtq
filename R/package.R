@@ -5,9 +5,7 @@
 #' @examples
 #' # See ?bbqr for examples.
 #' @references <https://github.com/wlandau/bbqr>
-#' @importFrom base64url base64_urldecode base64_urlencode
 #' @importFrom filelock lock unlock
 #' @importFrom fs dir_create file_create
-#' @importFrom R.utils countLines
 #' @importFrom R6 R6Class
 NULL
