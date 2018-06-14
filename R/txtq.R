@@ -6,6 +6,11 @@
 #' @param path Character string giving the file path of the queue.
 #'   The `txtq()` function creates a folder at this path to store
 #'   the messages.
+#' @param use_locking Logical, whether to use file locking
+#'   to lock the queue whenever it is accessed. Should be
+#'   `TRUE` except in esoteric applications such as
+#'   advanced testing of the `txtq` package itself.
+#'
 #' @examples
 #'   path <- tempfile() # Define a path to your queue.
 #'   q <- txtq(path) # Create the queue.
@@ -51,8 +56,16 @@
 #'   # This whole time, the queue was locked when either Process A
 #'   # or Process B accessed it. That way, the data stays correct
 #'   # no matter who is accessing/modifying the queue and when.
-txtq <- function(path){
-  R6_txtq$new(path = path)
+txtq <- function(path, use_locking = TRUE){
+  R6_txtq$new(path = path, use_locking = use_locking)
+}
+
+`%||%` <- function(x, y){
+  if (length(x) > 0){
+    x
+  } else {
+    y
+  }
 }
 
 R6_txtq <- R6::R6Class(
@@ -63,19 +76,22 @@ R6_txtq <- R6::R6Class(
     head_file = character(0),
     lock_file = character(0),
     total_file = character(0),
+    use_locking = logical(0),
     txtq_exclusive = function(code){
-      on.exit(filelock::unlock(lock))
-      lock <- filelock::lock(private$lock_file)
+      if (private$use_locking) {
+        on.exit(filelock::unlock(lock))
+        lock <- filelock::lock(private$lock_file)
+      }
       force(code)
     },
     txtq_get_head = function(){
-      scan(private$head_file, quiet = TRUE, what = integer())
+      scan(private$head_file, quiet = TRUE, what = integer()) %||% 0
     },
     txtq_set_head = function(n){
       write(x = as.integer(n), file = private$head_file, append = FALSE)
     },
     txtq_get_total = function(){
-      scan(private$total_file, quiet = TRUE, what = integer())
+      scan(private$total_file, quiet = TRUE, what = integer()) %||% 0
     },
     txtq_set_total = function(n){
       write(x = as.integer(n), file = private$total_file, append = FALSE)
@@ -97,8 +113,6 @@ R6_txtq <- R6::R6Class(
         message = base64url::base64_urlencode(as.character(message)),
         stringsAsFactors = FALSE
       )
-      new_total <- private$txtq_get_total() + nrow(out)
-      private$txtq_set_total(new_total)
       write.table(
         out,
         file = private$db_file,
@@ -108,6 +122,8 @@ R6_txtq <- R6::R6Class(
         sep = "|",
         quote = FALSE
       )
+      new_total <- private$txtq_get_total() + nrow(out)
+      private$txtq_set_total(new_total)
     },
     txtq_log = function(){
       if (length(scan(private$db_file, quiet = TRUE, what = character())) < 1){
@@ -161,12 +177,13 @@ R6_txtq <- R6::R6Class(
     }
   ),
   public = list(
-    initialize = function(path){
+    initialize = function(path, use_locking){
       private$path_dir <- fs::dir_create(path)
       private$db_file <- file.path(private$path_dir, "db")
       private$head_file <- file.path(private$path_dir, "head")
       private$total_file <- file.path(private$path_dir, "total")
       private$lock_file <- file.path(private$path_dir, "lock")
+      private$use_locking <- use_locking
       private$txtq_exclusive({
         fs::file_create(private$db_file)
         if (!file.exists(private$head_file)){
