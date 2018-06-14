@@ -1,8 +1,9 @@
 context("txtq")
 
-test_that("txtq utilities work", {
+test_that("empty txtq without files", {
   q <- txtq(tempfile())
   expect_true(file.exists(q$path()))
+  expect_equal(length(list.files(q$path())), 0)
   expect_true(q$empty())
   expect_equal(q$count(), 0)
   expect_equal(q$total(), 0)
@@ -17,6 +18,30 @@ test_that("txtq utilities work", {
   expect_equal(q$log(), null_df)
   expect_equal(q$count(), 0)
   expect_equal(q$total(), 0)
+})
+
+test_that("empty txtq with files", {
+  q <- txtq(tempfile())
+  q$push(1, 2)
+  q$pop()
+  expect_true(q$empty())
+  expect_equal(q$count(), 0)
+  expect_equal(q$total(), 1)
+  null_df <- data.frame(
+    title = character(0),
+    message = character(0),
+    stringsAsFactors = FALSE
+  )
+  expect_equal(q$pop(), null_df)
+  expect_equal(q$pop(), null_df)
+  expect_equal(q$list(), null_df)
+  expect_equal(q$count(), 0)
+  expect_equal(q$total(), 1)
+  expect_equal(nrow(q$log()), 1)
+})
+
+test_that("full txtq works", {
+  q <- txtq(tempfile())
   q$push(title = 1:2, message = 2:3)
   q$push(title = "74", message = "\"128\"")
   q$push(title = "71234", message = "My sentence is not long.")
@@ -43,6 +68,11 @@ test_that("txtq utilities work", {
   expect_equal(out$message, full_df[-1, "message"])
   expect_true(q$empty())
   expect_equal(q$count(), 0)
+  null_df <- data.frame(
+    title = character(0),
+    message = character(0),
+    stringsAsFactors = FALSE
+  )
   expect_equal(q$list(), null_df)
   expect_equal(q$log(), full_df)
   q$push(title = "new", message = "message")

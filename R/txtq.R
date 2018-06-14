@@ -77,6 +77,11 @@ R6_txtq <- R6::R6Class(
     lock_file = character(0),
     total_file = character(0),
     use_locking = logical(0),
+    empty_df = data.frame(
+      title = character(0),
+      message = character(0),
+      stringsAsFactors = FALSE
+    ),
     txtq_exclusive = function(code){
       if (private$use_locking) {
         on.exit(filelock::unlock(lock))
@@ -84,14 +89,33 @@ R6_txtq <- R6::R6Class(
       }
       force(code)
     },
+    txtq_db_empty = function(){
+      !file.exists(private$db_file) ||
+        (length(
+          scan(
+            private$db_file,
+            quiet = TRUE,
+            what = character(),
+            nlines = 1
+          )
+        ) < 1)
+    },
     txtq_get_head = function(){
-      scan(private$head_file, quiet = TRUE, what = integer()) %||% 0
+      ifelse(
+        file.exists(private$head_file),
+        scan(private$head_file, quiet = TRUE, what = integer()) %||% 0,
+        0
+      )
     },
     txtq_set_head = function(n){
       write(x = as.integer(n), file = private$head_file, append = FALSE)
     },
     txtq_get_total = function(){
-      scan(private$total_file, quiet = TRUE, what = integer()) %||% 0
+      ifelse(
+        file.exists(private$total_file),
+        scan(private$total_file, quiet = TRUE, what = integer()) %||% 0,
+        0
+      )
     },
     txtq_set_total = function(n){
       write(x = as.integer(n), file = private$total_file, append = FALSE)
@@ -126,14 +150,8 @@ R6_txtq <- R6::R6Class(
       private$txtq_set_total(new_total)
     },
     txtq_log = function(){
-      if (length(scan(private$db_file, quiet = TRUE, what = character())) < 1){
-        return(
-          data.frame(
-            title = character(0),
-            message = character(0),
-            stringsAsFactors = FALSE
-          )
-        )
+      if (private$txtq_db_empty()){
+        return(private$empty_df)
       }
       private$parse_db(
         read.table(
@@ -147,14 +165,8 @@ R6_txtq <- R6::R6Class(
       )
     },
     txtq_list = function(n){
-      if (private$txtq_count() < 1){
-        return(
-          data.frame(
-            title = character(0),
-            message = character(0),
-            stringsAsFactors = FALSE
-          )
-        )
+      if (private$txtq_db_empty() || private$txtq_count() < 1){
+        return(private$empty_df)
       }
       private$parse_db(
         read.table(
@@ -184,15 +196,6 @@ R6_txtq <- R6::R6Class(
       private$total_file <- file.path(private$path_dir, "total")
       private$lock_file <- file.path(private$path_dir, "lock")
       private$use_locking <- use_locking
-      private$txtq_exclusive({
-        fs::file_create(private$db_file)
-        if (!file.exists(private$head_file)){
-          private$txtq_set_head(0)
-        }
-        if (!file.exists(private$total_file)){
-          private$txtq_set_total(0)
-        }
-      })
     },
     path = function(){
       private$path_dir
