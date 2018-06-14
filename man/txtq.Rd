@@ -4,12 +4,17 @@
 \alias{txtq}
 \title{Create a message queue.}
 \usage{
-txtq(path)
+txtq(path, use_locking = TRUE)
 }
 \arguments{
 \item{path}{Character string giving the file path of the queue.
 The \code{txtq()} function creates a folder at this path to store
 the messages.}
+
+\item{use_locking}{Logical, whether to use file locking
+to lock the queue whenever it is accessed. Should be
+\code{TRUE} except in esoteric applications such as
+advanced testing of the \code{txtq} package itself.}
 }
 \description{
 See the README at

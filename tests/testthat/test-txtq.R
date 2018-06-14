@@ -60,10 +60,9 @@ test_that("txtq utilities work", {
   expect_false(file.exists(q$path()))
 })
 
-test_that("txtq is thread safe", {
+test_that("txtq can be thread safe w/o file locking", {
   f <- function(process, in_, out_){
     q <- txtq::txtq(in_, use_locking = FALSE)
-    withCallingHandlers({
     if (identical(process, "A")){
       while (nrow(q$log()) < 1000 || !q$empty()){
         i <- 1
@@ -78,10 +77,6 @@ test_that("txtq is thread safe", {
         q$push(title = as.character(i), message = as.character(i + 1))
       }
     }
-    },
-    error = function(e){
-      saveRDS(sys.calls(), "~/Downloads/err.rds") 
-    })
   }
   cl <- parallel::makePSOCKcluster(2)
   in_ <- tempfile()
